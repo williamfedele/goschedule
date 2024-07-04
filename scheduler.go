@@ -2,6 +2,7 @@ package goschedule
 
 import (
 	"container/heap"
+	"fmt"
 	"log/slog"
 	"sync"
 )
@@ -10,7 +11,9 @@ type SchedulerOption func(*Scheduler)
 
 func WithLogger(logger *slog.Logger) SchedulerOption {
 	return func(s *Scheduler) {
-		s.logger = logger
+		if logger != nil {
+			s.logger = logger
+		}
 	}
 }
 
@@ -54,6 +57,7 @@ func (s *Scheduler) CreateTask(priority int, execute func() error) *Task {
 		ID:          s.getNextId(),
 		Priority:    priority,
 		ExecuteFunc: execute,
+		status:      NotStarted,
 	}
 }
 
@@ -61,13 +65,25 @@ func (s *Scheduler) RunNext() {
 	if s.tasks.Len() > 0 {
 		task := heap.Pop(&s.tasks).(*Task)
 
-		s.logger.Info("Executing task", "ID", task.ID, "priority", task.Priority)
+		s.logger.Info("Next task", "ID", task.ID, "priority", task.Priority)
+		if task.status == Completed {
+			s.logger.Info("Task already executed", "ID", task.ID)
+			return
+		}
 		if len(task.dependencies) != 0 {
 			s.logger.Info("Task has dependencies. Executing dependencies...")
 		}
 
 		for _, dep := range task.dependencies {
-			// TODO if any dependencies fail, we should bail on the dependent task
+			if dep.status == Failed {
+				s.logger.Error("Dependency is in failed state. Task will not be executed", "ID", task.ID)
+				return
+			}
+			if dep.status == Completed {
+				s.logger.Warn("Dependency already executed", "ID", dep.ID)
+				continue
+			}
+
 			s.logger.Info("Executing dependency", "ID", dep.ID)
 			if err := dep.Execute(); err != nil {
 				s.logger.Error("Error executing dependency", "ID", dep.ID, "Error", err)
@@ -82,6 +98,7 @@ func (s *Scheduler) RunNext() {
 			}
 		}
 
+		s.logger.Info("Executing task", "ID", task.ID, "priority", task.Priority)
 		err := task.Execute()
 
 		if err != nil {
@@ -101,10 +118,11 @@ func (s *Scheduler) Run() {
 	}
 }
 
-func (s *Scheduler) AddDependency(task *Task, dependency *Task) {
+func (s *Scheduler) AddDependency(task *Task, dependency *Task) error {
 	if task.ID == dependency.ID {
 		s.logger.Error("Task cannot depend on itself", "ID", task.ID)
-		return
+		return fmt.Errorf("Task cannot depend on itself")
 	}
 	task.dependencies = append(task.dependencies, dependency)
+	return nil
 }
