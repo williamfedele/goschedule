@@ -2,24 +2,39 @@ package goschedule
 
 import (
 	"container/heap"
-	"log"
+	"log/slog"
 	"sync"
 )
+
+type SchedulerOption func(*Scheduler)
+
+func WithLogger(logger *slog.Logger) SchedulerOption {
+	return func(s *Scheduler) {
+		s.logger = logger
+	}
+}
 
 type Scheduler struct {
 	tasks     PriorityQueue
 	nextId    int
 	completed map[int]struct{}
 	mu        sync.Mutex
+	logger    *slog.Logger
 }
 
-func NewScheduler() *Scheduler {
+func NewScheduler(options ...SchedulerOption) *Scheduler {
 	s := &Scheduler{
 		tasks:     make(PriorityQueue, 0),
 		nextId:    0,
 		completed: make(map[int]struct{}),
+		logger:    slog.Default(),
 	}
 	heap.Init(&s.tasks)
+
+	for _, option := range options {
+		option(s)
+	}
+
 	return s
 }
 
@@ -46,11 +61,17 @@ func (s *Scheduler) RunNext() {
 	if s.tasks.Len() > 0 {
 		task := heap.Pop(&s.tasks).(*Task)
 
+		s.logger.Info("Executing task", "ID", task.ID, "priority", task.Priority)
+		if len(task.dependencies) != 0 {
+			s.logger.Info("Task has dependencies. Executing dependencies...")
+		}
+
 		for _, dep := range task.dependencies {
-			log.Printf("Executing dependency %d for task %d", dep.ID, task.ID)
+			// TODO if any dependencies fail, we should bail on the dependent task
+			s.logger.Info("Executing dependency", "ID", dep.ID)
 			if err := dep.Execute(); err != nil {
-				log.Printf("Error executing dependency %d for task %d: %v", dep.ID, task.ID, err)
-				log.Printf("Task %d will not be executed", task.ID)
+				s.logger.Error("Error executing dependency", "ID", dep.ID, "Error", err)
+				s.logger.Error("Task will not be executed due to failed dependencies", "ID", task.ID)
 				// TODO add maxretries to task and retry if it fails
 				// currently will not add the task back to the queue
 				return
@@ -64,7 +85,7 @@ func (s *Scheduler) RunNext() {
 		err := task.Execute()
 
 		if err != nil {
-			log.Printf("Error executing task %d: %v\n", task.ID, err)
+			s.logger.Error("Error executing task", "ID", task.ID, "Error", err)
 		} else {
 			s.mu.Lock()
 			s.completed[task.ID] = struct{}{}
@@ -80,10 +101,10 @@ func (s *Scheduler) Run() {
 	}
 }
 
-func (s *Scheduler) AddDependency(t *Task, d *Task) {
-	if t.ID == d.ID {
-		log.Printf("Task cannot depend on itself. Task ID: %d", t.ID)
+func (s *Scheduler) AddDependency(task *Task, dependency *Task) {
+	if task.ID == dependency.ID {
+		s.logger.Error("Task cannot depend on itself", "ID", task.ID)
 		return
 	}
-	t.dependencies = append(t.dependencies, d)
+	task.dependencies = append(task.dependencies, dependency)
 }
