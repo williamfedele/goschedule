@@ -5,7 +5,6 @@ type Task struct {
 	Priority     int
 	ExecuteFunc  func() error
 	dependencies []*Task
-	executed     bool
 	status       Status
 }
 
@@ -20,7 +19,7 @@ const (
 
 func (t *Task) Execute() error {
 	// Dependencies might already have been executed so we don't need to execute them again
-	if t.executed {
+	if t.status == Completed {
 		return nil
 	}
 
@@ -31,7 +30,6 @@ func (t *Task) Execute() error {
 		t.status = Failed
 	} else {
 		t.status = Completed
-		t.executed = true
 	}
 	return err
 }

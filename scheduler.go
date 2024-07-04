@@ -61,22 +61,38 @@ func (s *Scheduler) CreateTask(priority int, execute func() error) *Task {
 	}
 }
 
+func (s *Scheduler) executeTask(t *Task) error {
+	s.logger.Info("Executing task", "ID", t.ID, "priority", t.Priority)
+
+	if err := t.Execute(); err != nil {
+		s.logger.Error("Task failed", "ID", t.ID, "Error", err)
+		return err
+	}
+
+	s.logger.Info("Task completed", "ID", t.ID)
+	s.mu.Lock()
+	s.completed[t.ID] = struct{}{}
+	s.mu.Unlock()
+	return nil
+}
+
 func (s *Scheduler) RunNext() {
 	if s.tasks.Len() > 0 {
 		task := heap.Pop(&s.tasks).(*Task)
 
-		s.logger.Info("Next task", "ID", task.ID, "priority", task.Priority)
-		if task.status == Completed {
-			s.logger.Info("Task already executed", "ID", task.ID)
+		s.logger.Info("Next scheduled task", "ID", task.ID, "priority", task.Priority)
+		if task.status == Failed {
+			s.logger.Error("Scheduled task has failed. Will not be executed", "ID", task.ID)
 			return
 		}
-		if len(task.dependencies) != 0 {
-			s.logger.Info("Task has dependencies. Executing dependencies...")
+		if task.status == Completed {
+			s.logger.Warn("Scheduled task has already been executed", "ID", task.ID)
+			return
 		}
 
 		for _, dep := range task.dependencies {
 			if dep.status == Failed {
-				s.logger.Error("Dependency is in failed state. Task will not be executed", "ID", task.ID)
+				s.logger.Error("Dependency is in failed state. Scheduled task will not be executed", "ID", task.ID)
 				return
 			}
 			if dep.status == Completed {
@@ -84,30 +100,12 @@ func (s *Scheduler) RunNext() {
 				continue
 			}
 
-			s.logger.Info("Executing dependency", "ID", dep.ID)
-			if err := dep.Execute(); err != nil {
-				s.logger.Error("Error executing dependency", "ID", dep.ID, "Error", err)
-				s.logger.Error("Task will not be executed due to failed dependencies", "ID", task.ID)
-				// TODO add maxretries to task and retry if it fails
-				// currently will not add the task back to the queue
+			if err := s.executeTask(dep); err != nil {
+				s.logger.Error("Scheduled task will not be executed due to failed dependencies", "ID", task.ID)
 				return
-			} else {
-				s.mu.Lock()
-				s.completed[dep.ID] = struct{}{}
-				s.mu.Unlock()
 			}
 		}
-
-		s.logger.Info("Executing task", "ID", task.ID, "priority", task.Priority)
-		err := task.Execute()
-
-		if err != nil {
-			s.logger.Error("Error executing task", "ID", task.ID, "Error", err)
-		} else {
-			s.mu.Lock()
-			s.completed[task.ID] = struct{}{}
-			s.mu.Unlock()
-		}
+		s.executeTask(task)
 	}
 
 }
