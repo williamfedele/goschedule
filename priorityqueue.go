@@ -1,4 +1,4 @@
-package main
+package schedule
 
 type PriorityQueue []*Task
 
@@ -21,6 +21,7 @@ func (pq *PriorityQueue) Push(x any) {
 func (pq *PriorityQueue) Pop() any {
 	n := len(*pq)
 	task := (*pq)[n-1]
+	(*pq)[n-1] = nil // avoid memory leak
 	*pq = (*pq)[:n-1]
 	return task
 }
