@@ -1,8 +1,4 @@
-package schedule
-
-import (
-	"log"
-)
+package goschedule
 
 type Task struct {
 	ID           int
@@ -18,12 +14,6 @@ func (t *Task) Execute() error {
 		return nil
 	}
 
-	for _, dep := range t.dependencies {
-		log.Printf("Executing dependency %d for task %d", dep.ID, t.ID)
-		if err := dep.Execute(); err != nil {
-			return err
-		}
-	}
 	err := t.ExecuteFunc()
 
 	if err == nil {

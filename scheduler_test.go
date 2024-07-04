@@ -1,9 +1,11 @@
-package schedule
+package goschedule
 
 import (
 	"fmt"
 	"math/rand"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func createTestTask(id int, priority int) *Task {
@@ -26,40 +28,133 @@ func generateTasks(count int) []*Task {
 	return tasks
 }
 
-func createDependentTask(id int, priority int, dependencies []*Task) *Task {
-	return &Task{
-		ID:           id,
-		Priority:     priority,
-		dependencies: dependencies,
-		ExecuteFunc: func() error {
-			fmt.Printf("Dependent task %d executed\n", id)
-			return nil
-		},
-	}
-}
-
 func createErrorTask(id int, priority int) *Task {
 	return &Task{
 		ID:       id,
 		Priority: priority,
 		ExecuteFunc: func() error {
-			return fmt.Errorf("Error executing task %d", id)
+			return fmt.Errorf("Error message!")
 		},
+	}
+}
+
+func TestCreateTask(t *testing.T) {
+	s := NewScheduler()
+
+	task1 := s.CreateTask(3, func() error {
+		return nil
+	})
+
+	task2 := s.CreateTask(5, func() error {
+		return nil
+	})
+
+	assert.Equal(t, 1, task1.ID)
+	assert.Equal(t, 3, task1.Priority)
+
+	assert.Equal(t, 2, task2.ID)
+	assert.Equal(t, 5, task2.Priority)
+
+}
+
+func TestScheduler(t *testing.T) {
+	s := NewScheduler()
+
+	tasks := generateTasks(10)
+	for _, task := range tasks {
+		s.AddTask(task)
+	}
+
+	s.Run()
+
+	for _, task := range tasks {
+		assert.True(t, task.executed, fmt.Sprintf("Task %d was not executed", task.ID))
+		_, ok := s.completed[task.ID]
+		assert.True(t, ok, fmt.Sprintf("Task %d was not marked as completed", task.ID))
 	}
 }
 
 func TestSchedulerWithDependencies(t *testing.T) {
 	s := NewScheduler()
 
-	tasks := generateTasks(10)
-	for _, t := range tasks {
-		s.AddTask(t)
-	}
+	// task1 (dep) -> task3 -> task2
+	task1 := createTestTask(1, 2)
+	task2 := createTestTask(2, 3)
+	task3 := createTestTask(3, 5)
+	s.AddDependency(task3, task1)
 
-	depTask := createDependentTask(11, 5, []*Task{tasks[0], tasks[1]})
-	s.AddTask(depTask)
+	s.AddTask(task1)
+	s.AddTask(task2)
+	s.AddTask(task3)
+
+	s.RunNext()
+
+	assert.True(t, task1.executed, "Task 1 was not executed as a dependency")
+	_, ok := s.completed[task1.ID]
+	assert.True(t, ok, "Task 1 was not marked as completed")
+
+	s.RunNext()
+
+	assert.True(t, task3.executed, "Task 3 was not executed")
+	_, ok = s.completed[task3.ID]
+	assert.True(t, ok, "Task 3 was not marked as completed")
+
+	s.RunNext()
+
+	assert.True(t, task2.executed, "Task 3 was not executed")
+	_, ok = s.completed[task2.ID]
+	assert.True(t, ok, "Task 2 was not marked as completed")
+
+}
+
+func TestSchedulerWithError(t *testing.T) {
+	s := NewScheduler()
+
+	// executed should be false, ID should not be in completed map
+	task1 := createErrorTask(1, 2)
+
+	s.AddTask(task1)
+
+	s.RunNext()
+	assert.False(t, task1.executed, "Task 1 was executed")
+	_, ok := s.completed[task1.ID]
+	assert.False(t, ok, "Task 1 was marked as completed")
+}
+
+func TestSchedulerWithErrorDependency(t *testing.T) {
+	s := NewScheduler()
+
+	// task1 fails, task2 should not be executed
+	task1 := createErrorTask(1, 2)
+	task2 := createTestTask(2, 3)
+	s.AddDependency(task2, task1)
+
+	s.AddTask(task1)
+	s.AddTask(task2)
 
 	s.Run()
 
-	// TODO modify the scheduler to track completed execution order for testing
+	assert.False(t, task1.executed, "Task 1 was executed")
+	_, ok := s.completed[task1.ID]
+	assert.False(t, ok, "Task 1 was marked as completed")
+
+	assert.False(t, task2.executed, "Task 2 was executed")
+	_, ok = s.completed[task2.ID]
+	assert.False(t, ok, "Task 2 was marked as completed")
+}
+
+func TestTaskSelfDependent(t *testing.T) {
+	s := NewScheduler()
+
+	task1 := createTestTask(1, 2)
+	s.AddDependency(task1, task1)
+
+	s.AddTask(task1)
+
+	s.Run()
+
+	assert.Equal(t, len(task1.dependencies), 0, "Task 1 has dependencies")
+	assert.True(t, task1.executed, "Task 1 was not executed")
+	_, ok := s.completed[task1.ID]
+	assert.True(t, ok, "Task 1 was not marked as completed")
 }
