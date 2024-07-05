@@ -68,7 +68,7 @@ func TestScheduler(t *testing.T) {
 	s.Run()
 
 	for _, task := range tasks {
-		assert.True(t, task.executed, fmt.Sprintf("Task %d was not executed", task.ID))
+		assert.Equal(t, Completed, task.status, fmt.Sprintf("Task %d was not marked as completed", task.ID))
 		_, ok := s.completed[task.ID]
 		assert.True(t, ok, fmt.Sprintf("Task %d was not marked as completed", task.ID))
 	}
@@ -89,22 +89,19 @@ func TestSchedulerWithDependencies(t *testing.T) {
 
 	s.RunNext()
 
-	assert.True(t, task1.executed, "Task 1 was not executed as a dependency")
+	assert.Equal(t, Completed, task1.status, "Task 1 was marked as started")
 	_, ok := s.completed[task1.ID]
 	assert.True(t, ok, "Task 1 was not marked as completed")
 
-	s.RunNext()
-
-	assert.True(t, task3.executed, "Task 3 was not executed")
+	assert.Equal(t, Completed, task3.status, "Task 3 was marked as started")
 	_, ok = s.completed[task3.ID]
 	assert.True(t, ok, "Task 3 was not marked as completed")
 
 	s.RunNext()
 
-	assert.True(t, task2.executed, "Task 3 was not executed")
+	assert.Equal(t, Completed, task2.status, "Task 2 was marked as started")
 	_, ok = s.completed[task2.ID]
 	assert.True(t, ok, "Task 2 was not marked as completed")
-
 }
 
 func TestSchedulerWithError(t *testing.T) {
@@ -116,7 +113,7 @@ func TestSchedulerWithError(t *testing.T) {
 	s.AddTask(task1)
 
 	s.RunNext()
-	assert.False(t, task1.executed, "Task 1 was executed")
+	assert.Equal(t, Failed, task1.status, "Task 1 was not marked as failed")
 	_, ok := s.completed[task1.ID]
 	assert.False(t, ok, "Task 1 was marked as completed")
 }
@@ -134,11 +131,11 @@ func TestSchedulerWithErrorDependency(t *testing.T) {
 
 	s.Run()
 
-	assert.False(t, task1.executed, "Task 1 was executed")
+	assert.Equal(t, Failed, task1.status, "Task 1 was not marked as failed")
 	_, ok := s.completed[task1.ID]
 	assert.False(t, ok, "Task 1 was marked as completed")
 
-	assert.False(t, task2.executed, "Task 2 was executed")
+	assert.Equal(t, NotStarted, task2.status, "Task 2 was marked as started")
 	_, ok = s.completed[task2.ID]
 	assert.False(t, ok, "Task 2 was marked as completed")
 }
@@ -154,7 +151,7 @@ func TestTaskSelfDependent(t *testing.T) {
 	s.Run()
 
 	assert.Equal(t, len(task1.dependencies), 0, "Task 1 has dependencies")
-	assert.True(t, task1.executed, "Task 1 was not executed")
+	assert.Equal(t, Completed, task1.status, "Task 1 was not marked as completed")
 	_, ok := s.completed[task1.ID]
 	assert.True(t, ok, "Task 1 was not marked as completed")
 }
